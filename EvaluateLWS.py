@@ -6,21 +6,10 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import seaborn as sns
 from scipy import stats
+import myFunc 
 
 # インタラクティブモード ON（interactive on）
 plt.ion()  
-
-# 図の最大化オプション関数
-def maximize_plot_window():
-    mng = plt.get_current_fig_manager()
-    try:
-        mng.window.state('zoomed')  # Windows
-    except AttributeError:
-        try:
-            mng.window.showMaximized()  # Linux
-        except AttributeError:
-            pass
-
 
 # %%それぞれ読み込み
 print("データ読み込み")
@@ -178,7 +167,7 @@ df_daily_sum.index.name = 'Date'
 '''
 #可視化
 plt.figure(figsize=(24, 12) )
-#maximize_plot_window()
+#myFunc.maximize_plot_window()
 for i, col in enumerate(df_daily_sum.columns):
     color = cmap(i)
     marker = 'x' 
@@ -265,6 +254,7 @@ minus_1sigma = {}
 max_values = {}
 min_values = {}
 
+
 # 各日付ごとに統計量を計算（NaNを除外）
 for date, series in daily_cleaned_dict.items():
     series_clean = series.dropna()
@@ -325,7 +315,7 @@ plt.show()
 '''
 
 # --- 外れ値除去と最大相対誤差の計算関数はそのまま ---
-
+'''
 def compute_max_relative_error(group):
     q1 = group['value'].quantile(0.25)
     q3 = group['value'].quantile(0.75)
@@ -342,7 +332,7 @@ def compute_max_relative_error(group):
     y_mean = y_prime.mean()
     max_error = np.max(np.abs(y_prime - y_mean)) / y_mean
     return pd.Series({'max_relative_error': max_error})
-
+'''
 # --- ここからメイン処理 ---
 
 # day_indexはPeriodIndex（日単位）
@@ -367,9 +357,27 @@ df_box_d['day'] = x_days
 
 df_melted_d = df_box_d.melt(id_vars='day', var_name='category', value_name='value')
 
-outliers_all = []
 
-error_df_d = df_melted_d.groupby('day').apply(compute_max_relative_error).reset_index()
+# --- 外れ値除去と最大相対誤差の計算関数はそのまま ---
+outliers_all = []
+results = []
+
+# 'day' ごとにグループ化してループ処理
+for day, group in df_melted_d.groupby('day'):
+    result, outliers_all = myFunc.compute_max_relative_error(group, outliers_all)
+    
+    # 結果が Series や dict の場合、day を追加して辞書化
+    if isinstance(result, pd.Series):
+        result = result.to_dict()
+    result['day'] = day
+    
+    results.append(result)
+
+# 結果を DataFrame に変換
+error_df_d = pd.DataFrame(results).reset_index(drop=True)
+
+#error_df_d = df_melted_d.groupby('day').apply(compute_max_relative_error).reset_index()
+
 
 fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, figsize=(24, 12))
 
@@ -431,12 +439,23 @@ df_melted = df_box.melt(id_vars='month', var_name='category', value_name='value'
 
 
 # ② 外れ値除去（IQRベース）とエラー計算
-
-# グループ処理用に空のリストを用意
 outliers_all = []
+results = []
 
-# 外れ値除去およびその可視化
-error_df = df_melted.groupby('month').apply(compute_max_relative_error).reset_index()
+# 'month' ごとにグループ化してループ処理
+for month, group in df_melted.groupby('month'):
+    result, outliers_all = myFunc.compute_max_relative_error(group, outliers_all)
+    
+    # 結果が Series や dict の場合、month を追加して辞書化
+    if isinstance(result, pd.Series):
+        result = result.to_dict()
+    result['month'] = month
+    
+    results.append(result)
+
+# 結果を DataFrame に変換
+error_df = pd.DataFrame(results).reset_index(drop=True)
+#error_df = df_melted.groupby('month').apply(myFunc.compute_max_relative_error).reset_index()
 
 df_outliers = pd.concat(outliers_all, ignore_index=True)
 print(df_outliers[['month', 'category', 'value']])
@@ -445,7 +464,7 @@ print(df_outliers[['month', 'category', 'value']])
 plt.ioff()
 fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True)
 fig.set_size_inches(24, 12) 
-#maximize_plot_window()
+#myFunc.maximize_plot_window()
 
 # ① 箱ひげ図
 # 外れ値マーカー（flier）を×印に変更
@@ -482,22 +501,4 @@ plt.tight_layout()
 plt.savefig(r"results/MonthlyTotal_histrical.png", dpi=1200, bbox_inches='tight')
 plt.show()
 
-'''
-for i, col in enumerate(df_monthly_sum.columns):
-    color = cmap(i)
-    marker = 'x' 
-    if i < 25:
-        marker = '.' 
-
-    if i>0:    
-        plt.scatter(x_months, df_monthly_sum[col], label=col, s=s, color=color, alpha=0.6, marker=marker)
-
-
-plt.title("Monthly total , from 1981-2023")
-plt.ylabel("Monthly total [kWh]")
-plt.xlabel("Month")
-plt.xticks(rotation=45)
-#plt.legend(loc='center left', bbox_to_anchor=(1, 0.5), ncol=2)
-plt.legend(loc='best', ncol=2)
-'''
 
