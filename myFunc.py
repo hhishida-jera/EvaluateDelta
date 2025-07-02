@@ -75,3 +75,39 @@ def MyBoxPlot(unique_days, df_diff_day, df_daily_act,
     plt.tight_layout()
     plt.savefig(str_path, dpi=1200, bbox_inches='tight')
     plt.show()
+
+def MergeToPeriod_L(df_l, N, PeriodType):
+
+    # 結果を格納するリスト
+    result_frames = []
+
+    # 0, 2, 4, ..., 86列目が日時、1, 3, 5, ..., 87列目が値
+    for i in range(0, N, 2):
+        datetime_col = df_l.iloc[:, 88]
+        value_col = df_l.iloc[:, i + 1]
+
+        # 年度名の作成（例: 2025FY）
+        year = pd.to_datetime(df_l.iloc[0, i]).year
+        fy_label = f"{year}FY"
+
+        # 抽出
+        if PeriodType == "Date":
+            dates = pd.to_datetime(datetime_col).dt.date
+            temp_df = pd.DataFrame({"Date": dates, 'Value': value_col})
+            #temp_df = pd.DataFrame({'Value': value_col})
+        elif PeriodType == "Month":
+            months = pd.to_datetime(datetime_col).dt.to_period('M')
+            temp_df = pd.DataFrame({"Month": months, 'Value': value_col})
+            #temp_df = pd.DataFrame({'Value': value_col})
+
+        # 値を合計
+        grouped = temp_df.groupby(PeriodType).sum().reset_index()
+        grouped = grouped.rename(columns={"Value": fy_label})
+
+        # 結果をリストに追加
+        result_frames.append(grouped[fy_label])
+
+    # 全ての結果を横に結合（必要に応じてsuffixを付ける）
+    final_df = pd.concat(result_frames, axis=1)
+
+    return final_df

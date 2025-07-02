@@ -70,7 +70,7 @@ result_df = pd.DataFrame()
 
 # taskId は 1〜44
 for task_id in range(1, 45):
-    task_df = df_l[df_l["taskId"] == task_id].sort_values("weatherPathDateTime")
+    task_df = df_l[df_l["taskId"] == task_id].sort_values("startDateTime")
 
     start_times = task_df["weatherPathDateTime"].reset_index(drop=True).copy()
     values = task_df["value"].reset_index(drop=True).copy()
@@ -85,17 +85,18 @@ for task_id in range(1, 45):
 #マージ
 df_l = pd.concat([result_df.reset_index(drop=True), df_l_act.reset_index(drop=True)], axis=1)
 
-
-# インデックスが datetime 型であることを確認
-df_l_act['DELIVERYDATE'] = pd.to_datetime(df_l_act['DELIVERYDATE'])
-
-# 日付だけ抽出して新しいカラムに（時間部分を除去）
-df_l_act['date'] = df_l_act['DELIVERYDATE'].dt.date
-
 # 日付ごとに Load_Actual_MW を合計
+df_l_act['DELIVERYDATE'] = pd.to_datetime(df_l_act['DELIVERYDATE'])
+df_l_act['date'] = df_l_act['DELIVERYDATE'].dt.date
 df_daily_act = df_l_act.groupby('date')['Load_Actual_MW'].sum().reset_index()
 
 
+##################################################################
+print("集約")
+
+#Load
+df_l_day = myFunc.MergeToPeriod_L(df_l, 88, "Date")
+df_l_month = myFunc.MergeToPeriod_L(df_l, 88, "Month")
     
 '''
 plt.figure()
@@ -404,9 +405,6 @@ for day, group in df_melted_d.groupby('day'):
 # 結果を DataFrame に変換
 error_df_d = pd.DataFrame(results).reset_index(drop=True)
 
-#error_df_d = df_melted_d.groupby('day').apply(compute_max_relative_error).reset_index()
-
-
 fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, figsize=(24, 12))
 flierprops = dict(marker='x', color='red', markersize=6)
 
@@ -515,13 +513,15 @@ plt.savefig(r"results/DailyTotal_histrical_diff_Box.png", dpi=1200, bbox_inches=
 plt.show()
 """
 
-#boxplot アウトライヤー非表示
+#2024FY実績と各年の気象から推定した値のboxplot（日別）
+#アウトライヤー非表示
 myFunc.MyBoxPlot(unique_days, df_diff_day, df_daily_act, 
               "Day",
               "Difference [GWh]",
               "BoxPlot of Yearly Differences without Outliner",
               r"results\DailyTotal_histrical_diff_Box_woOutliner.png",
               False)
+
 myFunc.MyBoxPlot(unique_days, df_diff_day, df_daily_act, 
               "Day",
               "Difference [GWh]",
