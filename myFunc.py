@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-
+from matplotlib.ticker import MaxNLocator
 
 # 図の最大化オプション関数
 def maximize_plot_window():
@@ -34,3 +34,44 @@ def compute_max_relative_error(group, outliers_all):
     max_error = np.max(np.abs(y_prime - y_mean)) / y_mean
     return pd.Series({'max_relative_error': max_error}), outliers_all
 
+def MyBoxPlot(unique_days, df_diff_day, df_daily_act, 
+              str_xlabel,
+              str_ylabel,
+              str_title,
+              str_path,
+              tf_showfliers=True):
+    # 各日付に対して、各年度の差分を集める
+    boxplot_data = []
+
+    for day in unique_days:
+        daily_diffs = []
+        for ii in range(2, 45):
+            col_name = f'{ii + 1980}FY'
+            if col_name in df_diff_day.columns:
+                row = df_diff_day[df_diff_day["day_str"] == day]
+                if not row.empty:
+                    diff = (row[col_name].values[0] - df_daily_act.loc[row.index[0], 'Load_Actual_MW']) / 1000.0
+                    daily_diffs.append(diff)
+        boxplot_data.append(daily_diffs)
+
+    # BoxPlotの描画
+    fig, ax = plt.subplots(figsize=(24, 12))
+    flierprops = dict(marker='.', markerfacecolor='black', markersize=3, linestyle='none')
+    ax.boxplot(boxplot_data, positions=range(len(unique_days)), showfliers=tf_showfliers, flierprops=flierprops)
+
+
+    # X軸の設定
+    ax.set_xticks(range(len(unique_days)))
+    ax.set_xticklabels(unique_days, rotation=90)
+    ax.set_xlim(-0.5, len(unique_days) - 0.5)
+    ax.xaxis.set_major_locator(MaxNLocator(integer=True, prune='both', nbins=10))
+
+    # 軸ラベルとタイトル
+    ax.set_xlabel(str_xlabel)
+    ax.set_ylabel(str_ylabel)
+
+    plt.title(str_title)
+
+    plt.tight_layout()
+    plt.savefig(str_path, dpi=1200, bbox_inches='tight')
+    plt.show()

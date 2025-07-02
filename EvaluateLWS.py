@@ -2,17 +2,18 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 #import matplotlib.cm as cm
-#from matplotlib.ticker import MaxNLocator
+from matplotlib.ticker import MaxNLocator
 import matplotlib.dates as mdates
 import seaborn as sns
 from scipy import stats
 import myFunc 
 
+##########################################################################
 # インタラクティブモード ON（interactive on）
 plt.ion()  
 
-# %%それぞれ読み込み
-print("データ読み込み")
+# それぞれ読み込み
+print("Solar データ読み込み")
 df_s=pd.read_csv(r"CSV\forecast_2024FY_tokyo_for_each_weather_scenario.csv")
 
 # 条件に合う列インデックスを選択（4で割って余りが0または3）
@@ -32,6 +33,7 @@ plt.tight_layout()
 plt.show()
 '''
 # Wind読み込み
+print("Wind データ読み込み")
 df_w=pd.read_csv(r"CSV\Wind_FY24.csv")
 
 '''
@@ -47,9 +49,21 @@ plt.show()
 '''
 
 # Load読み込み
+print("Load データ読み込み")
 df_l=pd.read_csv(r"CSV\Load_701.csv", parse_dates=["startDateTime"])
+df_l_act=pd.read_csv(r"CSV\Load_fromSnowflake.csv", parse_dates=["DELIVERYDATE"])
+
 # うるう年の 2月29日 データを削除
 df_l = df_l[~((df_l["startDateTime"].dt.month == 2) & (df_l["startDateTime"].dt.day == 29))]
+df_l_act['DELIVERYDATE'] = pd.to_datetime(df_l_act['DELIVERYDATE'])
+df_l_act = df_l_act[~((df_l_act["DELIVERYDATE"].dt.month == 2) & (df_l_act["DELIVERYDATE"].dt.day == 29))]
+df_l_act = df_l_act.sort_values(by='DELIVERYDATE', ascending=True)
+
+# 不要なエリアを除外&実績のみ残す
+df_l_act = df_l_act[df_l_act['DELIVERYDATE'] >= pd.Timestamp('2024-04-01')]
+df_l_act = df_l_act[df_l_act['DELIVERYDATE'] < pd.Timestamp('2025-04-01')]
+df_l_act = df_l_act[df_l_act["AREAID"] == 3]
+df_l_act.rename(columns={'MW': 'Load_Actual_MW'}, inplace=True)
 
 # 空の DataFrame を用意（列を順次追加していく）
 result_df = pd.DataFrame()
@@ -67,7 +81,21 @@ for task_id in range(1, 45):
 
     result_df[time_col_name] = start_times
     result_df[value_col_name] = values
-df_l = result_df
+
+#マージ
+df_l = pd.concat([result_df.reset_index(drop=True), df_l_act.reset_index(drop=True)], axis=1)
+
+
+# インデックスが datetime 型であることを確認
+df_l_act['DELIVERYDATE'] = pd.to_datetime(df_l_act['DELIVERYDATE'])
+
+# 日付だけ抽出して新しいカラムに（時間部分を除去）
+df_l_act['date'] = df_l_act['DELIVERYDATE'].dt.date
+
+# 日付ごとに Load_Actual_MW を合計
+df_daily_act = df_l_act.groupby('date')['Load_Actual_MW'].sum().reset_index()
+
+
     
 '''
 plt.figure()
@@ -82,11 +110,11 @@ plt.tight_layout()
 plt.show()
 '''
 
-# %% 
+########################################################################## 
 print("Load - Wind - Solarの計算")
 
 # ダミーデータの生成（本来は df1, df2 があると仮定）
-years = [f"{y}FY" for y in range(1981, 2024)]  # 1981FY〜2023FY（43列）
+years = [f"{y}FY" for y in range(1981, 2025)]  # 1981FY〜2025FY（44列）
 
 df_LSW = pd.DataFrame()
 
@@ -146,7 +174,7 @@ plt.legend(
 plt.tight_layout()
 plt.show()
 '''
-# %% day, monthにマージ
+
 print("day, monthにマージ")
 s=20
 # x を datetime に変換（念のため）
@@ -380,26 +408,29 @@ error_df_d = pd.DataFrame(results).reset_index(drop=True)
 
 
 fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, figsize=(24, 12))
-
 flierprops = dict(marker='x', color='red', markersize=6)
 
-# 1) 箱ひげ図は day を文字列化してカテゴリ扱い
+#上段　（箱ひげ図+実績）
+# day を文字列化してカテゴリ扱い
 df_melted_d['day_str'] = df_melted_d['day'].dt.strftime('%Y-%m-%d')
 sns.boxplot(x='day_str', y='value', data=df_melted_d, ax=ax1, flierprops=flierprops)
+#date を文字列に変換して x 軸に使う
+df_daily_act['date_str'] = pd.to_datetime(df_daily_act['date']).dt.strftime('%Y-%m-%d')
+ax1.plot(df_daily_act['date_str'], df_daily_act['Load_Actual_MW'], color='red', linestyle='-', label='2024FY_Actual')
+ax1.set_title('backcast simulation data (box plot) and 2024FY actual value (red)')
 
-# 2) 折れ線グラフのxは整数インデックスに変換
+#下段 error
 unique_days = sorted(df_melted_d['day'].drop_duplicates())
 day_to_int = {day: i for i, day in enumerate(unique_days)}
 error_df_d['day_int'] = error_df_d['day'].map(day_to_int)
-
 ax2.plot(error_df_d['day_int'], error_df_d['max_relative_error'], marker='o', linestyle='-', color='green')
+ax2.set_title('Max Relative Error (Excluding Outliers)')
 
 # x軸のラベルは日付文字列を設定（90度回転）
 ax2.set_xticks(range(len(unique_days)))
 ax2.set_xticklabels([d.strftime('%Y-%m-%d') for d in unique_days], rotation=90)
 ax2.set_xlim(-0.5, len(unique_days)-0.5)
 ax2.xaxis.set_major_locator(plt.MaxNLocator(integer=True, prune='both', nbins=10))
-ax2.set_title('Max Relative Error (Excluding Outliers)')
 ax2.set_ylabel('Max |y - mean| / mean')
 ax2.set_xlabel('Day')
 ax2.set_ylim(0, 0.5)
@@ -408,10 +439,98 @@ plt.tight_layout()
 plt.savefig(r"results/DailyTotal_histrical_boxplot.png", dpi=1200, bbox_inches='tight')
 plt.show()
 
+#日ごとの偏差を取得してプロット
+# 偏差格納用
+df_diff_day=df_melted_d.iloc[0:365,-1].copy()
+for ii in range(1, 45):
+    col_name = f'{ii + 1980}FY'
+    matched_values = df_melted_d.loc[df_melted_d['category'] == col_name, 'value'].reset_index(drop=True)
+    if len(matched_values)>365:
+        print(ii)
+    matched_values = matched_values.to_frame(name=col_name)
+    df_diff_day = pd.concat([df_diff_day, matched_values], axis=1)
+
+#偏差のプロット
+fig, ax = plt.subplots(figsize=(24, 12))
+
+for ii in range(2, 45):
+    col_name = f'{ii + 1980}FY'
+    ax.plot(
+        df_diff_day["day_str"],
+        (df_diff_day[col_name] - df_daily_act['Load_Actual_MW'])/1000.0,
+        linestyle='-',
+        label=col_name
+    )
+
+unique_days = df_diff_day["day_str"]
+ax.set_xticks(range(len(unique_days)))
+ax.set_xticklabels(unique_days, rotation=90)
+ax.set_xlim(-0.5, len(unique_days) - 0.5)
+ax.xaxis.set_major_locator(MaxNLocator(integer=True, prune='both', nbins=10))
+
+ax.set_title('Daily diff (histrial simulation(1982FY--2024FY) against actual value of 2024FY)')
+ax.set_ylabel('diff [GWh]')
+ax.set_xlabel('Day')
+ax.legend()
+
+plt.tight_layout()
+plt.savefig(r"results/DailyTotal_histrical_diff.png", dpi=1200, bbox_inches='tight')
+plt.show()
+
+"""
+# 各日付に対して、各年度の差分を集める
+boxplot_data = []
+
+for day in unique_days:
+    daily_diffs = []
+    for ii in range(2, 45):
+        col_name = f'{ii + 1980}FY'
+        if col_name in df_diff_day.columns:
+            row = df_diff_day[df_diff_day["day_str"] == day]
+            if not row.empty:
+                diff = (row[col_name].values[0] - df_daily_act.loc[row.index[0], 'Load_Actual_MW']) / 1000.0
+                daily_diffs.append(diff)
+    boxplot_data.append(daily_diffs)
+
+# BoxPlotの描画
+fig, ax = plt.subplots(figsize=(24, 12))
+flierprops = dict(marker='.', markerfacecolor='black', markersize=3, linestyle='none')
+ax.boxplot(boxplot_data, positions=range(len(unique_days)), flierprops=flierprops)
+
+# X軸の設定
+ax.set_xticks(range(len(unique_days)))
+ax.set_xticklabels(unique_days, rotation=90)
+ax.set_xlim(-0.5, len(unique_days) - 0.5)
+ax.xaxis.set_major_locator(MaxNLocator(integer=True, prune='both', nbins=10))
+
+# 軸ラベルとタイトル
+ax.set_xlabel('Day')
+ax.set_ylabel('Difference [GWh]')
+ax.set_title('BoxPlot of Daily Differences Across Fiscal Years')
+
+plt.title('BoxPlot of Yearly Differences')
+
+plt.tight_layout()
+plt.savefig(r"results/DailyTotal_histrical_diff_Box.png", dpi=1200, bbox_inches='tight')
+plt.show()
+"""
+
+#boxplot アウトライヤー非表示
+myFunc.MyBoxPlot(unique_days, df_diff_day, df_daily_act, 
+              "Day",
+              "Difference [GWh]",
+              "BoxPlot of Yearly Differences without Outliner",
+              r"results\DailyTotal_histrical_diff_Box_woOutliner.png",
+              False)
+myFunc.MyBoxPlot(unique_days, df_diff_day, df_daily_act, 
+              "Day",
+              "Difference [GWh]",
+              "BoxPlot of Yearly Differences with Outliner",
+              r"results\DailyTotal_histrical_diff_Box_wOutliner.png",
+              True)
+###################################################################################################
 
 
-
-# %%----- 月ごとの合計 -----
 # 月単位の PeriodIndex を作成（Series でも Index でも OK）
 if isinstance(x_datetime, pd.Series):
     month_index = x_datetime.dt.to_period('M')
