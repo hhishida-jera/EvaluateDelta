@@ -13,13 +13,14 @@ import myFunc
 plt.ion()  
 
 # それぞれ読み込み
-print("Solar データ読み込み")
+print("1. データ読み込み")
+
+print("Solar")
 df_s=pd.read_csv(r"CSV\forecast_2024FY_tokyo_for_each_weather_scenario.csv")
 
 # 条件に合う列インデックスを選択（4で割って余りが0または3）
 cols = [i for i in range(df_s.shape[1]) if i % 4 == 0 or i % 4 == 3]
-
-# 条件に合う列を取り出す
+cols.insert(-1, df_s.shape[1]-2)
 df_s = df_s.iloc[:, cols]
 '''
 plt.figure()
@@ -32,9 +33,20 @@ plt.legend()
 plt.tight_layout()
 plt.show()
 '''
-# Wind読み込み
-print("Wind データ読み込み")
-df_w=pd.read_csv(r"CSV\Wind_FY24.csv")
+
+print("Wind")
+df_w_tmp=pd.read_csv(r"CSV\Wind_FY24.csv")
+
+# 数値列をGWhに変換し、小数点以下1桁に揃える
+cols = df_w_tmp.columns[:-1]
+df_w_tmp[cols] = (df_w_tmp[cols] ).round(1)
+df_w_tmp[cols] = (df_w_tmp[cols] )/1000
+
+# Solarから日付をコピー
+df_w=df_s.copy()
+for ii in range(1, 45):
+    df_w.iloc[:, 2*ii-1] = df_w_tmp.iloc[:,ii-1].copy()
+df_w.iloc[:, -1] = df_w_tmp.iloc[:, -2].copy()
 
 '''
 plt.figure()
@@ -48,8 +60,8 @@ plt.tight_layout()
 plt.show()
 '''
 
-# Load読み込み
-print("Load データ読み込み")
+#loadは予測と実績が別（DB問題）
+print("Load")
 df_l=pd.read_csv(r"CSV\Load_701.csv", parse_dates=["startDateTime"])
 df_l_act=pd.read_csv(r"CSV\Load_fromSnowflake.csv", parse_dates=["DELIVERYDATE"])
 
@@ -63,12 +75,10 @@ df_l_act = df_l_act.sort_values(by='DELIVERYDATE', ascending=True)
 df_l_act = df_l_act[df_l_act['DELIVERYDATE'] >= pd.Timestamp('2024-04-01')]
 df_l_act = df_l_act[df_l_act['DELIVERYDATE'] < pd.Timestamp('2025-04-01')]
 df_l_act = df_l_act[df_l_act["AREAID"] == 3]
-df_l_act.rename(columns={'MW': 'Load_Actual_MW'}, inplace=True)
+df_l_act.rename(columns={'MW': 'Load_Actual_GWh'}, inplace=True)
 
-# 空の DataFrame を用意（列を順次追加していく）
+# 空の DataFrame を用意（列を順次追加していく）、# taskId は 1〜44
 result_df = pd.DataFrame()
-
-# taskId は 1〜44
 for task_id in range(1, 45):
     task_df = df_l[df_l["taskId"] == task_id].sort_values("startDateTime")
 
@@ -82,145 +92,107 @@ for task_id in range(1, 45):
     result_df[time_col_name] = start_times
     result_df[value_col_name] = values
 
-#マージ
+#マージ & GWhへの変換
 df_l = pd.concat([result_df.reset_index(drop=True), df_l_act.reset_index(drop=True)], axis=1)
+for ii in range(1,45):
+    v_tmp = df_l.iloc[:,2*ii-1].copy()
+#    df_l.iloc[:,2*ii-1] = (v_tmp.astype(np.float64))/1000
+    col_name = df_l.columns[2*ii - 1]
+    df_l[col_name] = v_tmp.copy().astype(np.float64) / 1000
 
-# 日付ごとに Load_Actual_MW を合計
-df_l_act['DELIVERYDATE'] = pd.to_datetime(df_l_act['DELIVERYDATE'])
-df_l_act['date'] = df_l_act['DELIVERYDATE'].dt.date
-df_daily_act = df_l_act.groupby('date')['Load_Actual_MW'].sum().reset_index()
+v_tmp = df_l.iloc[:,-1].copy()
+col_name = df_l.columns[- 1]
+df_l[col_name] = v_tmp.copy().astype(np.float64) / 1000
+
+##################################################################
+print("2. 集約")
+
+print("load - wind - solar")
+df_lws = df_l.copy()
+for ii in range(1,45):
+    vl = df_l.iloc[:,2*ii-1].copy()
+    vw = df_w.iloc[:,2*ii-1].copy()
+    vs = df_s.iloc[:,2*ii-1].copy()
+    vl = vl-vw-vs
+    col_name = df_lws.columns[2*ii - 1]
+    df_lws[col_name] = vl.astype(np.float64)
+
+vl = df_l.iloc[:,-1].copy()
+vw = df_w.iloc[:,-1].copy()
+vs = df_s.iloc[:,-1].copy()
+vl = vl-vw-vs
+col_name = df_lws.columns[- 1]
+df_lws[col_name] = vl.astype(np.float64) 
+
+
+print("load 日週月")
+df_l_day = myFunc.MergeToPeriod(df_l, 88, "Date")
+#月曜日始まり、日曜日終わり 
+df_l_week = myFunc.MergeToPeriod(df_l, 88, "Week")
+df_l_month = myFunc.MergeToPeriod(df_l, 88, "Month")
+
+print("load-wind-solar 日週月")
+df_lws_day = myFunc.MergeToPeriod(df_lws, 88, "Date")
+#月曜日始まり、日曜日終わり 
+df_lws_week = myFunc.MergeToPeriod(df_lws, 88, "Week")
+df_lws_month = myFunc.MergeToPeriod(df_lws, 88, "Month")
+
 
 
 ##################################################################
-print("集約")
+print("3. 可視化")
 
-#Load
-df_l_day = myFunc.MergeToPeriod_L(df_l, 88, "Date")
-df_l_month = myFunc.MergeToPeriod_L(df_l, 88, "Month")
-    
-'''
-plt.figure()
-for i in range(1,10):
-    plt.plot(df_l.iloc[:, 0], df_l.iloc[:, 2*i-1],label=i)
-plt.legend()
-ax = plt.gca()  # 現在のAxesオブジェクトを取得
-ax.xaxis.set_major_locator(MaxNLocator(nbins=4))  
-plt.xticks(rotation=45)  # X軸ラベルを90度回転
-plt.title("Load")
-plt.tight_layout()
-plt.show()
-'''
+print("過去44年 折れ線表示")
+myFunc.MyBoxPlot(df_lws_month, 44, "Month", 
+                 "Monthly Total (Load-Wind-Solar) against 2024FY, 1981--2024", "Monthly total [GWh]",
+              r"results/MonthlyTotal_histrical_all.png")
+myFunc.MyBoxPlot(df_lws_week, 44, "Week", 
+                 "Weekly Total (Load-Wind-Solar) against 2024FY, 1981--2024", "Weekly total [GWh]",
+              r"results/WeeklyTotal_histrical_all.png")
+myFunc.MyBoxPlot(df_lws_day, 44, "Day", 
+                 "Daily Total (Load-Wind-Solar) against 2024FY, 1981--2024", "Daily total [GWh]",
+              r"results/DailyTotal_histrical_all.png")
 
-########################################################################## 
-print("Load - Wind - Solarの計算")
+print("過去10年 折れ線表示")
+df_lws_month_recent=df_lws_month.iloc[:, 34:].copy()
+df_lws_week_recent=df_lws_week.iloc[:, 34:].copy()
+df_lws_day_recent=df_lws_day.iloc[:, 34:].copy()
 
-# ダミーデータの生成（本来は df1, df2 があると仮定）
-years = [f"{y}FY" for y in range(1981, 2025)]  # 1981FY〜2025FY（44列）
+myFunc.MyBoxPlot(df_lws_month_recent, 10, "Month", 
+                 "Monthly Total (Load-Wind-Solar) against 2024FY, recent 10 years", "Monthly total [GWh]",
+              r"results/MonthlyTotal_histrical_recent10years.png")
+myFunc.MyBoxPlot(df_lws_week_recent, 10, "Week", 
+                 "Weekly Total (Load-Wind-Solar) against 2024FY, recent 10 years", "Weekly total [GWh]",
+              r"results/WeeklyTotal_histrical_recent10years.png")
+myFunc.MyBoxPlot(df_lws_day_recent, 10, "Day", 
+                 "Daily Total (Load-Wind-Solar) against 2024FY, recent 10 years", "Daily total [GWh]",
+              r"results/DailyTotal_histrical_recent10years.png")
 
-df_LSW = pd.DataFrame()
+plt.ioff()
 
-for ii in range(0, len(years)):
-    year = years[ii]
+"""
 
-    # 列番号でアクセスし、copy() で明示的にコピー
-    vec_l = df_l.iloc[:, 2*ii - 1].copy()
-    vec_s = df_s.iloc[:, 2*ii - 1].copy()
-    vec_w = df_w.iloc[:, ii].copy()
+plt.figure(figsize=(24, 12))
+tt= df_lws_month.iloc[:, -2]
+if pd.api.types.is_period_dtype(tt):
+    tt = tt.dt.to_timestamp()
 
-    df_LSW[year] = vec_l - vec_s - vec_w
-
-#描画
-# カラーマップから色を取得
-cmap = plt.colormaps['tab20'].resampled(50)
-x = df_w.iloc[:, -1]  # X軸の共通データ
-
-'''
-plt.figure()
-for ii in range(34, len(years)):
-    year = years[ii]
-    y = df_LSW.iloc[:, ii]
-    color = cmap(ii)  # ii番目の色
-
-    plt.plot(x, y,alpha=0.3, label=year)
-
-ax = plt.gca()  # 現在のAxesオブジェクトを取得
-ax.xaxis.set_major_locator(MaxNLocator(nbins=4))  
-plt.xticks(rotation=45)  # X軸ラベルを90度回転
-plt.title("Load - Wind - Solar, recent 10 years")
-plt.legend(
-    loc='center left',
-    bbox_to_anchor=(1, 0.5)
-)
-plt.tight_layout()
-plt.show()
-
-#描画
-plt.figure()
-for ii in range(0, len(years)):
-    year = years[ii]
-    y = df_LSW.iloc[:, ii]
-    color = cmap(ii)  # ii番目の色
-
-    plt.plot(x, y,alpha=0.3, label=year)
-
-ax = plt.gca()  # 現在のAxesオブジェクトを取得
-ax.xaxis.set_major_locator(MaxNLocator(nbins=4))  
-plt.xticks(rotation=45)  # X軸ラベルを90度回転
-plt.title("Load - Wind - Solar, whole years")
-plt.legend(
-    loc='center left',
-    bbox_to_anchor=(1, 0.5),
-    ncol=2
-)
-plt.tight_layout()
-plt.show()
-'''
-
-print("day, monthにマージ")
-s=20
-# x を datetime に変換（念のため）
-x_datetime = pd.to_datetime(x)
-
-# ----- 日ごとの合計 -----
-date_index = x_datetime.dt.floor('D')
-
-df_daily_sum = pd.DataFrame()
-
-for col in df_LSW.columns:
-    y = df_LSW[col]
-    daily_sum = y.groupby(date_index).sum()
-    df_daily_sum[col] = daily_sum
-
-df_daily_sum.index.name = 'Date'
-
-'''
-#可視化
-plt.figure(figsize=(24, 12) )
-#myFunc.maximize_plot_window()
-for i, col in enumerate(df_daily_sum.columns):
-    color = cmap(i)
-    marker = 'x' 
-    if i < 25:
-        marker = '.' 
-
-    if i>0:    
-        plt.scatter(df_daily_sum.index, df_daily_sum[col], label=col, s=s, color=color, alpha=0.6, marker=marker)
-
-plt.title("Daily Total, from 1981-2023")
-plt.xlabel("Date")
-plt.ylabel("Dairy total [kWh]")
+for ii in range(1,45):
+    col_name = df_lws_month.columns[ii-1]
+    v=df_lws_month[col_name].copy()
+    plt.plot(tt, v ,label=col_name)
 
 ax = plt.gca()
-ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
-plt.xticks(rotation=45)
-#plt.legend(loc='center left', bbox_to_anchor=(1, 0.5), ncol=2)
-plt.legend(loc='best', ncol=2)
-plt.ylim(0.4e6, 1.2e6)
+
+# 月単位でメジャー目盛を設定（例: 5個ぐらい表示される）
+ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))  # 2ヶ月ごとにラベル表示
+ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))  # 表示形式
+
+plt.xticks(rotation=90)
 plt.tight_layout()
-plt.grid(True)
-plt.savefig(r"results/DaylyTotal_histrical.png", dpi=1200, bbox_inches='tight')
+plt.legend(loc='best', ncol=2)
 plt.show()
-'''
+
 
 #散布図がみづらいので、折れ線化
 
@@ -232,7 +204,6 @@ minus_1sigma = mean_values - std_values
 max_values = df_daily_sum.max(axis=1)
 min_values = df_daily_sum.min(axis=1)
 
-'''
 # プロット
 plt.figure(figsize=(24, 12))
 
@@ -475,7 +446,6 @@ plt.tight_layout()
 plt.savefig(r"results/DailyTotal_histrical_diff.png", dpi=1200, bbox_inches='tight')
 plt.show()
 
-"""
 # 各日付に対して、各年度の差分を集める
 boxplot_data = []
 
@@ -511,7 +481,7 @@ plt.title('BoxPlot of Yearly Differences')
 plt.tight_layout()
 plt.savefig(r"results/DailyTotal_histrical_diff_Box.png", dpi=1200, bbox_inches='tight')
 plt.show()
-"""
+
 
 #2024FY実績と各年の気象から推定した値のboxplot（日別）
 #アウトライヤー非表示
@@ -621,3 +591,4 @@ plt.savefig(r"results/MonthlyTotal_histrical.png", dpi=1200, bbox_inches='tight'
 plt.show()
 
 
+"""

@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
+import matplotlib.dates as mdates
 
 # 図の最大化オプション関数
 def maximize_plot_window():
@@ -76,38 +77,211 @@ def MyBoxPlot(unique_days, df_diff_day, df_daily_act,
     plt.savefig(str_path, dpi=1200, bbox_inches='tight')
     plt.show()
 
-def MergeToPeriod_L(df_l, N, PeriodType):
 
-    # 結果を格納するリスト
+def MergeToPeriod(df_l, N, PeriodType):
     result_frames = []
 
-    # 0, 2, 4, ..., 86列目が日時、1, 3, 5, ..., 87列目が値
-    for i in range(0, N, 2):
-        datetime_col = df_l.iloc[:, 88]
-        value_col = df_l.iloc[:, i + 1]
+    # 日時列（共通）
+    datetime_col = pd.to_datetime(df_l.iloc[:, 88])
 
-        # 年度名の作成（例: 2025FY）
+    if PeriodType == "Date":
+        periods = pd.date_range(start="2024-04-01", periods=365, freq="D")
+        period_key = "Date"
+        datetime_group = datetime_col.dt.normalize()
+    elif PeriodType == "Week":
+        periods = pd.period_range(start="2024-04-01", periods=53, freq="W")
+        period_key = "Week"
+        datetime_group = datetime_col.dt.to_period('W')
+    elif PeriodType == "Month":
+        periods = pd.period_range(start="2024-04", periods=12, freq="M")
+        period_key = "Month"
+        datetime_group = datetime_col.dt.to_period('M')
+    else:
+        raise ValueError("PeriodType must be one of: 'Date', 'Week', 'Month'")
+
+    for i in range(0, N, 2):
+        value_col = df_l.iloc[:, i + 1]
         year = pd.to_datetime(df_l.iloc[0, i]).year
         fy_label = f"{year}FY"
 
-        # 抽出
-        if PeriodType == "Date":
-            dates = pd.to_datetime(datetime_col).dt.date
-            temp_df = pd.DataFrame({"Date": dates, 'Value': value_col})
-            #temp_df = pd.DataFrame({'Value': value_col})
-        elif PeriodType == "Month":
-            months = pd.to_datetime(datetime_col).dt.to_period('M')
-            temp_df = pd.DataFrame({"Month": months, 'Value': value_col})
-            #temp_df = pd.DataFrame({'Value': value_col})
+        temp_df = pd.DataFrame({
+            period_key: datetime_group,
+            "Value": value_col
+        })
 
-        # 値を合計
-        grouped = temp_df.groupby(PeriodType).sum().reset_index()
+        grouped = temp_df.groupby(period_key).sum()
+
+        # インデックス揃える
+        if PeriodType == "Date":
+            grouped.index = pd.to_datetime(grouped.index)
+            periods_fixed = pd.to_datetime(periods)
+        else:
+            grouped.index = pd.PeriodIndex(grouped.index, freq=periods.freq)
+            periods_fixed = periods
+
+        grouped = grouped.reindex(periods_fixed, fill_value=0).reset_index()
         grouped = grouped.rename(columns={"Value": fy_label})
 
-        # 結果をリストに追加
-        result_frames.append(grouped[fy_label])
+        result_frames.append(grouped[[fy_label]])
 
-    # 全ての結果を横に結合（必要に応じてsuffixを付ける）
+    # 横に連結
     final_df = pd.concat(result_frames, axis=1)
 
+    # 期間列追加
+    final_df[period_key] = periods_fixed
+
+    # 🔽 最終列の "Actual_GWh" の処理を追加
+    actual_values = df_l.iloc[:, -1]  # 88列目（index 88）
+    actual_df = pd.DataFrame({
+        period_key: datetime_group,
+        "Actual_GWh": actual_values
+    })
+    actual_grouped = actual_df.groupby(period_key).sum()
+
+    # 同じく reindex で整形
+    if PeriodType == "Date":
+        actual_grouped.index = pd.to_datetime(actual_grouped.index)
+    else:
+        actual_grouped.index = pd.PeriodIndex(actual_grouped.index, freq=periods.freq)
+
+    actual_grouped = actual_grouped.reindex(periods_fixed, fill_value=0).reset_index()
+
+    # "Actual_GWh" 列だけ追加
+    final_df["Actual_GWh"] = actual_grouped["Actual_GWh"]
+
     return final_df
+
+def MyPlot(df, DateType, titleStr, YStr, fileStr):
+    plt.figure(figsize=(24, 12))
+    tt= df.iloc[:, -2]
+    if pd.api.types.is_period_dtype(tt):
+        tt = tt.dt.to_timestamp()
+
+    for ii in range(1,45):
+        col_name = df.columns[ii-1]
+        v=df[col_name].copy()
+        plt.plot(tt, v ,label=col_name)
+
+    ax = plt.gca()
+
+    if DateType == "Month":
+        # 月単位でメジャー目盛を設定（例: 5個ぐらい表示される）
+        ax.xaxis.set_major_locator(mdates.MonthLocator(interval=1))  # 2ヶ月ごとにラベル表示
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))  # 表示形式
+    elif DateType == "Week":
+        ax.xaxis.set_major_locator(mdates.WeekdayLocator(interval=9))  # 2ヶ月ごとにラベル表示
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))  # 表示形式
+    elif DateType == "Day":
+        ax.xaxis.set_major_locator(mdates.DayLocator(interval=61))  # 2ヶ月ごとにラベル表示
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))  # 表示形式
+
+    plt.title(titleStr, fontsize=24)
+    plt.ylabel(YStr, fontsize=18)
+    plt.xticks(rotation=90)
+    plt.tight_layout()
+    plt.legend(loc='best', ncol=2)
+    plt.grid(True)
+    plt.savefig(fileStr, dpi=1200, bbox_inches='tight')
+    plt.show()
+
+
+def MyBoxPlot_1(df, DateType, titleStr, YStr, fileStr):
+
+    # プロットの準備
+    fig, ax = plt.subplots(figsize=(24, 12))
+
+    # X軸ラベル（45列目）
+    x_labels = df.iloc[:, -2]
+
+    if pd.api.types.is_period_dtype(x_labels):
+        x_labels = x_labels.dt.to_timestamp()
+
+    # 各行ごとにBoxPlotを描画
+    for i in range(len(df)):
+        y_values = df.iloc[i, 0:44].values
+        ax.boxplot(y_values, positions=[i], widths=0.6)
+
+
+    # 折れ線グラフ（46列目）
+    line_y = df.iloc[:, 45]
+    ax.plot(range(len(df)), line_y, marker='o', color='red', label='Actual')
+
+    if DateType == "Month":
+        # 月単位でメジャー目盛を設定（例: 5個ぐらい表示される）
+        ax.xaxis.set_major_locator(mdates.MonthLocator(interval=1))  # 2ヶ月ごとにラベル表示
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))  # 表示形式
+    elif DateType == "Week":
+        ax.xaxis.set_major_locator(mdates.WeekdayLocator(interval=9))  # 2ヶ月ごとにラベル表示
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))  # 表示形式
+    elif DateType == "Day":
+        ax.xaxis.set_major_locator(mdates.DayLocator(interval=61))  # 2ヶ月ごとにラベル表示
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))  # 表示形式
+
+    plt.title(titleStr, fontsize=24)
+    plt.ylabel(YStr, fontsize=18)
+    plt.xticks(rotation=90)
+    plt.tight_layout()
+    plt.legend(loc='best', ncol=2)
+    plt.grid(True)
+    plt.savefig(fileStr, dpi=1200, bbox_inches='tight')
+    plt.show()
+
+
+
+def MyBoxPlot(df, n, DateType, titleStr, YStr, fileStr):
+    fig, ax = plt.subplots(figsize=(24, 12))
+
+    # X軸ラベル（日付）
+    x_labels = df.iloc[:, -2]
+    if pd.api.types.is_period_dtype(x_labels):
+        x_labels = x_labels.dt.to_timestamp()
+    elif not pd.api.types.is_datetime64_any_dtype(x_labels):
+        x_labels = pd.to_datetime(x_labels)
+
+    # 横位置のインデックス（整数）
+    x_pos = list(range(len(df)))
+
+    # 各行のデータをBoxPlotとして描く
+    for i in x_pos:
+        y_values = df.iloc[i, 0:n].values
+        ax.boxplot(y_values, positions=[i], widths=0.6)
+
+    # 折れ線（46列目 実績）を重ね書き
+    line_y = df.iloc[:, -1]
+    ax.plot(x_pos, line_y, marker='o', color='red', label='Actual')
+    # 折れ線（44列目 2024FY 43列目 2023FY）を重ね書き
+    line_y = df.iloc[:, -3]
+    ax.plot(x_pos, line_y, marker='o', color='blue', label='2024FY')
+    line_y = df.iloc[:, -4]
+    ax.plot(x_pos, line_y, marker='o', color='black', label='2023FY')
+
+    # X軸ラベルの間引き（DateTypeごとに処理）
+    if DateType == "Month":
+        tick_pos = x_pos  # 全てのラベル表示（必要なら間引き可能）
+        xtick_labels = x_labels.dt.strftime('%Y-%m')
+    elif DateType == "Week":
+        # 9日間隔でラベルを表示（もとの設定に近い）
+        tick_pos = x_pos[::9]
+        xtick_labels = x_labels.dt.strftime('%Y-%m-%d')[::9]
+    elif DateType == "Day":
+        # 7日（1週間）間隔でラベルを表示
+        tick_pos = x_pos[::7]
+        xtick_labels = x_labels.dt.strftime('%Y-%m-%d')[::7]
+    else:
+        tick_pos = x_pos
+        xtick_labels = x_labels.astype(str)
+
+    # X軸の目盛とラベルを設定
+    ax.set_xticks(tick_pos)
+    ax.set_xticklabels(xtick_labels, rotation=90)
+
+    # タイトルなど
+    plt.title(titleStr, fontsize=24)
+    plt.ylabel(YStr, fontsize=18)
+    plt.tight_layout()
+    plt.legend(loc='best', ncol=2)
+    plt.grid(True)
+    plt.savefig(fileStr, dpi=1200, bbox_inches='tight')
+    plt.show()
+
+
