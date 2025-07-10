@@ -16,25 +16,6 @@ def maximize_plot_window():
             pass
 
 
-
-# --- 外れ値除去と最大相対誤差の計算関数はそのまま ---
-def compute_max_relative_error(group, outliers_all):
-    q1 = group['value'].quantile(0.25)
-    q3 = group['value'].quantile(0.75)
-    iqr = q3 - q1
-    lower = q1 - 1.5 * iqr
-    upper = q3 + 1.5 * iqr
-
-    outliers = group[(group['value'] < lower) | (group['value'] > upper)]
-    outliers_all.append(outliers)
-
-    y_prime = group[(group['value'] >= lower) & (group['value'] <= upper)]['value']
-    if y_prime.empty:
-        return pd.Series({'max_relative_error': np.nan})
-    y_mean = y_prime.mean()
-    max_error = np.max(np.abs(y_prime - y_mean)) / y_mean
-    return pd.Series({'max_relative_error': max_error}), outliers_all
-
 def MyBoxPlot(unique_days, df_diff_day, df_daily_act, 
               str_xlabel,
               str_ylabel,
@@ -151,80 +132,40 @@ def MergeToPeriod(df_l, N, PeriodType):
 
     return final_df
 
-def MyPlot(df, DateType, titleStr, YStr, fileStr):
+def MyScatter(x, y, s,
+           titleStr, 
+           XStr, 
+           YStr, 
+           ymin,
+           ymax,
+           fileStr):
     plt.figure(figsize=(24, 12))
-    tt= df.iloc[:, -2]
-    if pd.api.types.is_period_dtype(tt):
-        tt = tt.dt.to_timestamp()
-
-    for ii in range(1,45):
-        col_name = df.columns[ii-1]
-        v=df[col_name].copy()
-        plt.plot(tt, v ,label=col_name)
-
-    ax = plt.gca()
-
-    if DateType == "Month":
-        # 月単位でメジャー目盛を設定（例: 5個ぐらい表示される）
-        ax.xaxis.set_major_locator(mdates.MonthLocator(interval=1))  # 2ヶ月ごとにラベル表示
-        ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))  # 表示形式
-    elif DateType == "Week":
-        ax.xaxis.set_major_locator(mdates.WeekdayLocator(interval=9))  # 2ヶ月ごとにラベル表示
-        ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))  # 表示形式
-    elif DateType == "Day":
-        ax.xaxis.set_major_locator(mdates.DayLocator(interval=61))  # 2ヶ月ごとにラベル表示
-        ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))  # 表示形式
-
-    plt.title(titleStr, fontsize=24)
-    plt.ylabel(YStr, fontsize=18)
-    plt.xticks(rotation=90)
+    plt.scatter(x, y, s=s)
     plt.tight_layout()
-    plt.legend(loc='best', ncol=2)
+    plt.ylabel(YStr, fontsize=18)
+    plt.xlabel(XStr, fontsize=18)
+
+    # 線形回帰の計算
+    coeffs = np.polyfit(x, y, 1)  # 一次式の係数（傾きと切片）
+    poly_eq = np.poly1d(coeffs)   # 回帰式の関数オブジェクト
+    y_fit = poly_eq(x)            # 回帰直線のy値
+
+    # 回帰直線の描画
+    plt.plot(x, y_fit, color='red', label=f'y = {coeffs[0]:.2f}x + {coeffs[1]:.2f}')
+    title_with_slope = f"{titleStr} (slope = {coeffs[0]:.2f})"
+    plt.title(title_with_slope, fontsize=24)
+    plt.legend(fontsize=14)
+
+    # y軸の範囲設定（必要な場合）
+    if ymin != ymax:
+        plt.ylim(ymin, ymax)
+
     plt.grid(True)
     plt.savefig(fileStr, dpi=1200, bbox_inches='tight')
-    plt.show()
+    plt.close()
 
+    return coeffs[0]
 
-def MyBoxPlot_1(df, DateType, titleStr, YStr, fileStr):
-
-    # プロットの準備
-    fig, ax = plt.subplots(figsize=(24, 12))
-
-    # X軸ラベル（45列目）
-    x_labels = df.iloc[:, -2]
-
-    if pd.api.types.is_period_dtype(x_labels):
-        x_labels = x_labels.dt.to_timestamp()
-
-    # 各行ごとにBoxPlotを描画
-    for i in range(len(df)):
-        y_values = df.iloc[i, 0:44].values
-        ax.boxplot(y_values, positions=[i], widths=0.6)
-
-
-    # 折れ線グラフ（46列目）
-    line_y = df.iloc[:, 45]
-    ax.plot(range(len(df)), line_y, marker='o', color='red', label='Actual')
-
-    if DateType == "Month":
-        # 月単位でメジャー目盛を設定（例: 5個ぐらい表示される）
-        ax.xaxis.set_major_locator(mdates.MonthLocator(interval=1))  # 2ヶ月ごとにラベル表示
-        ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))  # 表示形式
-    elif DateType == "Week":
-        ax.xaxis.set_major_locator(mdates.WeekdayLocator(interval=9))  # 2ヶ月ごとにラベル表示
-        ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))  # 表示形式
-    elif DateType == "Day":
-        ax.xaxis.set_major_locator(mdates.DayLocator(interval=61))  # 2ヶ月ごとにラベル表示
-        ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))  # 表示形式
-
-    plt.title(titleStr, fontsize=24)
-    plt.ylabel(YStr, fontsize=18)
-    plt.xticks(rotation=90)
-    plt.tight_layout()
-    plt.legend(loc='best', ncol=2)
-    plt.grid(True)
-    plt.savefig(fileStr, dpi=1200, bbox_inches='tight')
-    plt.show()
 
 
 
@@ -282,6 +223,5 @@ def MyBoxPlot(df, n, DateType, titleStr, YStr, fileStr):
     plt.legend(loc='best', ncol=2)
     plt.grid(True)
     plt.savefig(fileStr, dpi=1200, bbox_inches='tight')
-    plt.show()
-
-
+    #plt.show()
+    plt.close()

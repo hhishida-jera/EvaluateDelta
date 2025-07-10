@@ -7,11 +7,14 @@ import matplotlib.dates as mdates
 import seaborn as sns
 from scipy import stats
 import myFunc 
+import itertools
 
 ##########################################################################
 # インタラクティブモード ON（interactive on）
 plt.ion()  
+flag_vis = False
 
+##########################################################################
 # それぞれ読み込み
 print("1. データ読み込み")
 
@@ -142,453 +145,169 @@ df_lws_month = myFunc.MergeToPeriod(df_lws, 88, "Month")
 ##################################################################
 print("3. 可視化")
 
-print("過去44年 折れ線表示")
-myFunc.MyBoxPlot(df_lws_month, 44, "Month", 
-                 "Monthly Total (Load-Wind-Solar) against 2024FY, 1981--2024", "Monthly total [GWh]",
-              r"results/MonthlyTotal_histrical_all.png")
-myFunc.MyBoxPlot(df_lws_week, 44, "Week", 
-                 "Weekly Total (Load-Wind-Solar) against 2024FY, 1981--2024", "Weekly total [GWh]",
-              r"results/WeeklyTotal_histrical_all.png")
-myFunc.MyBoxPlot(df_lws_day, 44, "Day", 
-                 "Daily Total (Load-Wind-Solar) against 2024FY, 1981--2024", "Daily total [GWh]",
-              r"results/DailyTotal_histrical_all.png")
-
-print("過去10年 折れ線表示")
-df_lws_month_recent=df_lws_month.iloc[:, 34:].copy()
-df_lws_week_recent=df_lws_week.iloc[:, 34:].copy()
-df_lws_day_recent=df_lws_day.iloc[:, 34:].copy()
-
-myFunc.MyBoxPlot(df_lws_month_recent, 10, "Month", 
-                 "Monthly Total (Load-Wind-Solar) against 2024FY, recent 10 years", "Monthly total [GWh]",
-              r"results/MonthlyTotal_histrical_recent10years.png")
-myFunc.MyBoxPlot(df_lws_week_recent, 10, "Week", 
-                 "Weekly Total (Load-Wind-Solar) against 2024FY, recent 10 years", "Weekly total [GWh]",
-              r"results/WeeklyTotal_histrical_recent10years.png")
-myFunc.MyBoxPlot(df_lws_day_recent, 10, "Day", 
-                 "Daily Total (Load-Wind-Solar) against 2024FY, recent 10 years", "Daily total [GWh]",
-              r"results/DailyTotal_histrical_recent10years.png")
-
-plt.ioff()
-
-"""
-
-plt.figure(figsize=(24, 12))
-tt= df_lws_month.iloc[:, -2]
-if pd.api.types.is_period_dtype(tt):
-    tt = tt.dt.to_timestamp()
-
-for ii in range(1,45):
-    col_name = df_lws_month.columns[ii-1]
-    v=df_lws_month[col_name].copy()
-    plt.plot(tt, v ,label=col_name)
-
-ax = plt.gca()
-
-# 月単位でメジャー目盛を設定（例: 5個ぐらい表示される）
-ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))  # 2ヶ月ごとにラベル表示
-ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))  # 表示形式
-
-plt.xticks(rotation=90)
-plt.tight_layout()
-plt.legend(loc='best', ncol=2)
-plt.show()
-
-
-#散布図がみづらいので、折れ線化
-
-# 統計量の計算
-mean_values = df_daily_sum.mean(axis=1)
-std_values = df_daily_sum.std(axis=1)
-plus_1sigma = mean_values + std_values
-minus_1sigma = mean_values - std_values
-max_values = df_daily_sum.max(axis=1)
-min_values = df_daily_sum.min(axis=1)
-
-# プロット
-plt.figure(figsize=(24, 12))
-
-# 統計線のプロット
-plt.plot(df_daily_sum.index, mean_values, color='black', label='Mean', linewidth=2)
-plt.plot(df_daily_sum.index, plus_1sigma, color='blue', linestyle='--', label='+1sigma')
-plt.plot(df_daily_sum.index, minus_1sigma, color='blue', linestyle='--', label='-1sigma')
-plt.plot(df_daily_sum.index, max_values, color='red', linestyle=':', label='max')
-plt.plot(df_daily_sum.index, min_values, color='red', linestyle=':', label='min')
-
-# 軸と凡例の設定
-plt.title("Daily Total, from 1981-2023")
-plt.xlabel("Date")
-plt.ylabel("Daily total [kWh]")
-ax = plt.gca()
-ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
-plt.xticks(rotation=45)
-plt.legend(loc='best', ncol=2)
-plt.ylim(0.4e6, 1.2e6)
-plt.tight_layout()
-plt.grid(True)
-
-# 保存と表示
-plt.savefig("results/DaylyTotal_histrical_plot.png", dpi=1200, bbox_inches='tight')
-plt.show()
-'''
-
-# 空のdict
-daily_cleaned_dict = {}
-# 各列ごとにIQRで外れ値除去
-for date in df_daily_sum.index:
-    row = df_daily_sum.loc[date]
-    q1 = row.quantile(0.25)
-    q3 = row.quantile(0.75)
-    iqr = q3 - q1
-    lower = q1 - 1.5 * iqr
-    upper = q3 + 1.5 * iqr
-    
-    cleaned_row = row.where((row >= lower) & (row <= upper))
-    daily_cleaned_dict[date] = cleaned_row # Seriesやlistとして格納
-
-
-# 統計量を格納する辞書
-mean_values = {}
-std_values = {}
-plus_1sigma = {}
-minus_1sigma = {}
-max_values = {}
-min_values = {}
-
-
-# 各日付ごとに統計量を計算（NaNを除外）
-for date, series in daily_cleaned_dict.items():
-    series_clean = series.dropna()
-    if not series_clean.empty:
-        mean = series_clean.mean()
-        std = series_clean.std()
-        mean_values[date] = mean
-        std_values[date] = std
-        plus_1sigma[date] = mean + std
-        minus_1sigma[date] = mean - std
-        max_values[date] = series_clean.max()
-        min_values[date] = series_clean.min()
-    else:
-        mean_values[date] = pd.NA
-        std_values[date] = pd.NA
-        plus_1sigma[date] = pd.NA
-        minus_1sigma[date] = pd.NA
-        max_values[date] = pd.NA
-        min_values[date] = pd.NA
-
-# 結果をDataFrameにまとめる
-df_day_statistics = pd.DataFrame({
-    'mean': pd.Series(mean_values),
-    '+1sigma': pd.Series(plus_1sigma),
-    '-1sigma': pd.Series(minus_1sigma),
-    'max': pd.Series(max_values),
-    'min': pd.Series(min_values)
-})
-
-'''
-# プロット
-plt.figure(figsize=(24, 12))
-
-# 統計線のプロット
-
-plt.plot(df_day_statistics.index, df_day_statistics['mean'], color='black', label='Mean', linewidth=2)
-plt.plot(df_day_statistics.index, df_day_statistics['+1sigma'], color='blue', linestyle='--', label='+1sigma')
-plt.plot(df_day_statistics.index, df_day_statistics['-1sigma'], color='blue', linestyle='--', label='-1sigma')
-plt.plot(df_day_statistics.index, df_day_statistics['max'], color='red', linestyle=':', label='Max')
-plt.plot(df_day_statistics.index, df_day_statistics['min'], color='red', linestyle=':', label='Min')
-
-
-# 軸と凡例の設定
-plt.title("Daily Total (outliner removed), from 1981-2023")
-plt.xlabel("Date")
-plt.ylabel("Daily total [kWh]")
-ax = plt.gca()
-ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
-plt.xticks(rotation=45)
-plt.legend(loc='best', ncol=2)
-plt.ylim(0.4e6, 1.2e6)
-plt.tight_layout()
-plt.grid(True)
-
-# 保存と表示
-plt.savefig("results/DaylyTotal_histrical_clean_plot.png", dpi=1200, bbox_inches='tight')
-plt.show()
-'''
-
-# --- 外れ値除去と最大相対誤差の計算関数はそのまま ---
-'''
-def compute_max_relative_error(group):
-    q1 = group['value'].quantile(0.25)
-    q3 = group['value'].quantile(0.75)
-    iqr = q3 - q1
-    lower = q1 - 1.5 * iqr
-    upper = q3 + 1.5 * iqr
-
-    outliers = group[(group['value'] < lower) | (group['value'] > upper)]
-    outliers_all.append(outliers)
-
-    y_prime = group[(group['value'] >= lower) & (group['value'] <= upper)]['value']
-    if y_prime.empty:
-        return pd.Series({'max_relative_error': np.nan})
-    y_mean = y_prime.mean()
-    max_error = np.max(np.abs(y_prime - y_mean)) / y_mean
-    return pd.Series({'max_relative_error': max_error})
-'''
-# --- ここからメイン処理 ---
-
-# day_indexはPeriodIndex（日単位）
-if isinstance(x_datetime, pd.Series):
-    day_index = x_datetime.dt.to_period('D')
-else:
-    day_index = x_datetime.to_period('D')
-
-df_daily_sum = pd.DataFrame()
-for col in df_LSW.columns:
-    y = df_LSW[col]
-    daily_sum = y.groupby(day_index).sum()
-    df_daily_sum[col] = daily_sum
-
-df_daily_sum.index.name = 'Day'
-
-# PeriodIndex → Timestamp（datetime64[ns]）
-x_days = df_daily_sum.index.to_timestamp()
-
-df_box_d = df_daily_sum.copy()
-df_box_d['day'] = x_days
-
-df_melted_d = df_box_d.melt(id_vars='day', var_name='category', value_name='value')
-
-
-# --- 外れ値除去と最大相対誤差の計算関数はそのまま ---
-outliers_all = []
-results = []
-
-# 'day' ごとにグループ化してループ処理
-for day, group in df_melted_d.groupby('day'):
-    result, outliers_all = myFunc.compute_max_relative_error(group, outliers_all)
-    
-    # 結果が Series や dict の場合、day を追加して辞書化
-    if isinstance(result, pd.Series):
-        result = result.to_dict()
-    result['day'] = day
-    
-    results.append(result)
-
-# 結果を DataFrame に変換
-error_df_d = pd.DataFrame(results).reset_index(drop=True)
-
-fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, figsize=(24, 12))
-flierprops = dict(marker='x', color='red', markersize=6)
-
-#上段　（箱ひげ図+実績）
-# day を文字列化してカテゴリ扱い
-df_melted_d['day_str'] = df_melted_d['day'].dt.strftime('%Y-%m-%d')
-sns.boxplot(x='day_str', y='value', data=df_melted_d, ax=ax1, flierprops=flierprops)
-#date を文字列に変換して x 軸に使う
-df_daily_act['date_str'] = pd.to_datetime(df_daily_act['date']).dt.strftime('%Y-%m-%d')
-ax1.plot(df_daily_act['date_str'], df_daily_act['Load_Actual_MW'], color='red', linestyle='-', label='2024FY_Actual')
-ax1.set_title('backcast simulation data (box plot) and 2024FY actual value (red)')
-
-#下段 error
-unique_days = sorted(df_melted_d['day'].drop_duplicates())
-day_to_int = {day: i for i, day in enumerate(unique_days)}
-error_df_d['day_int'] = error_df_d['day'].map(day_to_int)
-ax2.plot(error_df_d['day_int'], error_df_d['max_relative_error'], marker='o', linestyle='-', color='green')
-ax2.set_title('Max Relative Error (Excluding Outliers)')
-
-# x軸のラベルは日付文字列を設定（90度回転）
-ax2.set_xticks(range(len(unique_days)))
-ax2.set_xticklabels([d.strftime('%Y-%m-%d') for d in unique_days], rotation=90)
-ax2.set_xlim(-0.5, len(unique_days)-0.5)
-ax2.xaxis.set_major_locator(plt.MaxNLocator(integer=True, prune='both', nbins=10))
-ax2.set_ylabel('Max |y - mean| / mean')
-ax2.set_xlabel('Day')
-ax2.set_ylim(0, 0.5)
-
-plt.tight_layout()
-plt.savefig(r"results/DailyTotal_histrical_boxplot.png", dpi=1200, bbox_inches='tight')
-plt.show()
-
-#日ごとの偏差を取得してプロット
-# 偏差格納用
-df_diff_day=df_melted_d.iloc[0:365,-1].copy()
-for ii in range(1, 45):
-    col_name = f'{ii + 1980}FY'
-    matched_values = df_melted_d.loc[df_melted_d['category'] == col_name, 'value'].reset_index(drop=True)
-    if len(matched_values)>365:
-        print(ii)
-    matched_values = matched_values.to_frame(name=col_name)
-    df_diff_day = pd.concat([df_diff_day, matched_values], axis=1)
-
-#偏差のプロット
-fig, ax = plt.subplots(figsize=(24, 12))
-
-for ii in range(2, 45):
-    col_name = f'{ii + 1980}FY'
-    ax.plot(
-        df_diff_day["day_str"],
-        (df_diff_day[col_name] - df_daily_act['Load_Actual_MW'])/1000.0,
-        linestyle='-',
-        label=col_name
-    )
-
-unique_days = df_diff_day["day_str"]
-ax.set_xticks(range(len(unique_days)))
-ax.set_xticklabels(unique_days, rotation=90)
-ax.set_xlim(-0.5, len(unique_days) - 0.5)
-ax.xaxis.set_major_locator(MaxNLocator(integer=True, prune='both', nbins=10))
-
-ax.set_title('Daily diff (histrial simulation(1982FY--2024FY) against actual value of 2024FY)')
-ax.set_ylabel('diff [GWh]')
-ax.set_xlabel('Day')
-ax.legend()
-
-plt.tight_layout()
-plt.savefig(r"results/DailyTotal_histrical_diff.png", dpi=1200, bbox_inches='tight')
-plt.show()
-
-# 各日付に対して、各年度の差分を集める
-boxplot_data = []
-
-for day in unique_days:
-    daily_diffs = []
-    for ii in range(2, 45):
-        col_name = f'{ii + 1980}FY'
-        if col_name in df_diff_day.columns:
-            row = df_diff_day[df_diff_day["day_str"] == day]
-            if not row.empty:
-                diff = (row[col_name].values[0] - df_daily_act.loc[row.index[0], 'Load_Actual_MW']) / 1000.0
-                daily_diffs.append(diff)
-    boxplot_data.append(daily_diffs)
-
-# BoxPlotの描画
-fig, ax = plt.subplots(figsize=(24, 12))
-flierprops = dict(marker='.', markerfacecolor='black', markersize=3, linestyle='none')
-ax.boxplot(boxplot_data, positions=range(len(unique_days)), flierprops=flierprops)
-
-# X軸の設定
-ax.set_xticks(range(len(unique_days)))
-ax.set_xticklabels(unique_days, rotation=90)
-ax.set_xlim(-0.5, len(unique_days) - 0.5)
-ax.xaxis.set_major_locator(MaxNLocator(integer=True, prune='both', nbins=10))
-
-# 軸ラベルとタイトル
-ax.set_xlabel('Day')
-ax.set_ylabel('Difference [GWh]')
-ax.set_title('BoxPlot of Daily Differences Across Fiscal Years')
-
-plt.title('BoxPlot of Yearly Differences')
-
-plt.tight_layout()
-plt.savefig(r"results/DailyTotal_histrical_diff_Box.png", dpi=1200, bbox_inches='tight')
-plt.show()
-
-
-#2024FY実績と各年の気象から推定した値のboxplot（日別）
-#アウトライヤー非表示
-myFunc.MyBoxPlot(unique_days, df_diff_day, df_daily_act, 
-              "Day",
-              "Difference [GWh]",
-              "BoxPlot of Yearly Differences without Outliner",
-              r"results\DailyTotal_histrical_diff_Box_woOutliner.png",
-              False)
-
-myFunc.MyBoxPlot(unique_days, df_diff_day, df_daily_act, 
-              "Day",
-              "Difference [GWh]",
-              "BoxPlot of Yearly Differences with Outliner",
-              r"results\DailyTotal_histrical_diff_Box_wOutliner.png",
-              True)
-###################################################################################################
-
-
-# 月単位の PeriodIndex を作成（Series でも Index でも OK）
-if isinstance(x_datetime, pd.Series):
-    month_index = x_datetime.dt.to_period('M')
-else:
-    month_index = x_datetime.to_period('M')
-
-df_monthly_sum = pd.DataFrame()
-
-for col in df_LSW.columns:
-    y = df_LSW[col]
-    monthly_sum = y.groupby(month_index).sum()
-    df_monthly_sum[col] = monthly_sum
-
-#可視化準備
-df_monthly_sum.index.name = 'Month'
-# 月インデックス（Period）を Timestamp に変換してX軸に使う
-x_months = df_monthly_sum.index.to_timestamp()
-
-# ① box用データ整形
-df_box = df_monthly_sum.copy()
-df_box['month'] = x_months.strftime('%Y-%m')  # 例: '2024-08'
-
-# ② meltで長い形式へ
-df_melted = df_box.melt(id_vars='month', var_name='category', value_name='value')
-
-
-# ② 外れ値除去（IQRベース）とエラー計算
-outliers_all = []
-results = []
-
-# 'month' ごとにグループ化してループ処理
-for month, group in df_melted.groupby('month'):
-    result, outliers_all = myFunc.compute_max_relative_error(group, outliers_all)
-    
-    # 結果が Series や dict の場合、month を追加して辞書化
-    if isinstance(result, pd.Series):
-        result = result.to_dict()
-    result['month'] = month
-    
-    results.append(result)
-
-# 結果を DataFrame に変換
-error_df = pd.DataFrame(results).reset_index(drop=True)
-#error_df = df_melted.groupby('month').apply(myFunc.compute_max_relative_error).reset_index()
-
-df_outliers = pd.concat(outliers_all, ignore_index=True)
-print(df_outliers[['month', 'category', 'value']])
-
-#可視化
-plt.ioff()
-fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True)
-fig.set_size_inches(24, 12) 
-#myFunc.maximize_plot_window()
-
-# ① 箱ひげ図
-# 外れ値マーカー（flier）を×印に変更
-flierprops = dict(marker='x', color='red', markersize=6)
-sns.boxplot(x='month', y='value', data=df_melted, ax=ax1, flierprops=flierprops)
-ax1.set_title('Boxplot of Values by Month')
-ax1.grid(True)
-
-# ② 折れ線グラフ（最大の絶対偏差 / 平均）
-unique_months = sorted(df_melted['month'].drop_duplicates())
-month_to_int = {month: i for i, month in enumerate(unique_months)}
-error_df['month_int'] = error_df['month'].map(month_to_int)
-
-# month_intを使ってプロット
-ax2.plot(error_df['month_int'], error_df['max_relative_error'], marker='o', linestyle='-', color='green')
-
-# X軸の目盛りは整数のインデックス範囲
-ax2.set_xticks(range(len(unique_months)))
-
-# ラベルは月文字列
-ax2.set_xticklabels(unique_months, rotation=90)
-
-# X軸範囲もインデックスに合わせて指定
-ax2.set_xlim(-0.5, len(unique_months) - 0.5)
-
-# その他の設定はそのまま
-ax2.xaxis.set_major_locator(plt.MaxNLocator(integer=True, prune='both', nbins=10))
-ax2.set_ylim(0, 0.15)
-ax2.set_title('Max Relative Error (Excluding Outliers)')
-ax2.set_ylabel('Max |y - mean| / mean')
-ax2.set_xlabel('Month')
-
-plt.tight_layout()
-plt.savefig(r"results/MonthlyTotal_histrical.png", dpi=1200, bbox_inches='tight')
-plt.show()
-
-
-"""
+if flag_vis == True:
+    print("過去44年 折れ線表示")
+    myFunc.MyBoxPlot(df_lws_month, 44, "Month", 
+                    "Monthly Total (Load-Wind-Solar) against 2024FY, 1981--2024", "Monthly total [GWh]",
+                r"results/MonthlyTotal_histrical_all.png")
+    myFunc.MyBoxPlot(df_lws_week, 44, "Week", 
+                    "Weekly Total (Load-Wind-Solar) against 2024FY, 1981--2024", "Weekly total [GWh]",
+                r"results/WeeklyTotal_histrical_all.png")
+    myFunc.MyBoxPlot(df_lws_day, 44, "Day", 
+                    "Daily Total (Load-Wind-Solar) against 2024FY, 1981--2024", "Daily total [GWh]",
+                r"results/DailyTotal_histrical_all.png")
+
+
+#print("過去10年 折れ線表示")
+#df_lws_month_recent=df_lws_month.iloc[:, 34:].copy()
+#df_lws_week_recent=df_lws_week.iloc[:, 34:].copy()
+#df_lws_day_recent=df_lws_day.iloc[:, 34:].copy()
+
+#myFunc.MyBoxPlot(df_lws_month_recent, 10, "Month", 
+#                 "Monthly Total (Load-Wind-Solar) against 2024FY, recent 10 years", "Monthly total [GWh]",
+#              r"results/MonthlyTotal_histrical_recent10years.png")
+#myFunc.MyBoxPlot(df_lws_week_recent, 10, "Week", 
+#                 "Weekly Total (Load-Wind-Solar) against 2024FY, recent 10 years", "Weekly total [GWh]",
+#              r"results/WeeklyTotal_histrical_recent10years.png")
+#myFunc.MyBoxPlot(df_lws_day_recent, 10, "Day", 
+#                 "Daily Total (Load-Wind-Solar) against 2024FY, recent 10 years", "Daily total [GWh]",
+#              r"results/DailyTotal_histrical_recent10years.png")
+
+
+##########################################################################
+# 感応度評価
+# （面倒なので）代表的な場所のみを選択
+print("4. 感応度評価")
+print("Station情報取得")
+# データ読み込み
+df_station = pd.read_csv(r"CSV_tokyo\Tokyo.csv", header=2)
+
+# 列名を明示的に設定（必要に応じて確認・修正）
+df_station.columns = ['timestamp', 'temperature_2m', 'relative_humidity_2m']
+
+# 日時を datetime 型に変換
+df_station['timestamp'] = pd.to_datetime(df_station['timestamp'])
+
+# 年度情報（4月始まり）を追加
+df_station['FY'] = df_station['timestamp'].apply(lambda x: x.year if x.month >= 4 else x.year - 1)
+
+# 2/29を削除
+df_station = df_station[~((df_station['timestamp'].dt.month == 2) & (df_station['timestamp'].dt.day == 29))]
+
+# 2025FY を除外（未完了）
+df_station = df_station[df_station['FY'] < 2025]
+
+######################################
+#追加
+# 日付列（0列目）を datetime に変換（すでに datetime 型なら不要）
+dates = pd.to_datetime(df_station.iloc[:, 0])
+dates2 = pd.to_datetime(df_l.iloc[:, 0])
+
+grad1 = []
+grad2 = []
+
+for iter in range(4,16):
+    #月
+    n_month = iter
+    if n_month>12:
+            n_month =n_month - 12
+    print(f"    month {n_month}")
+
+    # 月に該当する行のブールマスクを作成 & 2列目（インデックス1の列）を抽出
+    is_month = (dates.dt.month == n_month) 
+    x = df_station.iloc[is_month.values, 1]
+
+    # 値を格納するリスト
+    y_list = []
+    is_month = dates2.dt.month == n_month
+
+    # 2列ずつ（0:時刻, 1:値, 2:時刻, 3:値, ...）
+    for i in range(0, 88, 2):
+        # 対象の範囲
+        datetime_col = pd.to_datetime(df_l.iloc[is_month.values, i])  # 時刻列（必要なら使う）
+        value_col = df_l.iloc[is_month.values, i + 1]                 # 対応する値列（1, 3, ...）
+
+        y_list.append(value_col)
+
+    # 縦方向に連結
+    y = pd.concat(y_list, ignore_index=True)
+
+    if flag_vis == True:
+        myFunc.MyScatter(x, y, 2,
+                         f"Tokyo month{n_month} hourly, temperature x VS demand y", 
+                         "temperature", 
+                         "GWh in hour", 
+                         0,
+                         50,
+                         fr"results/Hourly_month{n_month}_Temperature_vs_Demand.png")
+
+    # 2列ずつ（0:時刻, 1:値, 2:時刻, 3:値, ...）
+    y_list = []
+    for i in range(0, 88, 2):
+        # 対象の範囲
+        datetime_col = pd.to_datetime(df_lws.iloc[is_month.values, i])  # 時刻列（必要なら使う）
+        value_col = df_lws.iloc[is_month.values, i + 1]                 # 対応する値列（1, 3, ...）
+
+        y_list.append(value_col)
+
+    # 縦方向に連結
+    y2 = pd.concat(y_list, ignore_index=True)
+
+    if flag_vis == True:
+        myFunc.MyScatter(x, y2, 2,
+                         f"Tokyo month{n_month} hourly, temperature x VS residual demand y", 
+                         "temperature", 
+                         "GWh in hour", 
+                         0,
+                         50,
+                         fr"results/Hourly_month{n_month}_Temperature_vs_ResidualDemand.png")
+
+    #月間
+    n_chunks = 44
+    chunk_size = len(x) // n_chunks
+
+    # 分割して平均
+    # Series を NumPy 配列に変換して、必要な部分だけを取り出す（余りがある場合は無視）
+    x_array = x.to_numpy()
+
+    # 720個ごとに区切る（n_chunks行 × 720列 の2次元配列　）各ブロックの平均を計算（行方向に平均）
+    x_reshaped = x_array.reshape(n_chunks, chunk_size)
+    x_mean = x_reshaped.mean(axis=1)
+
+    #yについては合計する
+    y_array = y.to_numpy()    
+    chunk_size = len(y) // n_chunks
+    y_reshaped = y_array.reshape(n_chunks, chunk_size)
+    y_sum = y_reshaped.sum(axis=1)
+
+    y2_array = y2.to_numpy()
+    y2_trimmed = y2_array[:n_chunks * chunk_size]
+    y2_reshaped = y2_trimmed.reshape(n_chunks, chunk_size)
+    y2_sum = y2_reshaped.sum(axis=1)
+
+    #描画
+    g1 = myFunc.MyScatter(x_mean, y_sum, 20,
+                     f"Tokyo month{n_month} monthly, temperature x VS demand y", 
+                     "temperature", 
+                     "GWh in month", 
+                     12000,
+                     30000,
+                     fr"results/Demand/Monthly_month{n_month}_Temperature_vs_Demand.png")
+    grad1.append(g1)
+
+    g2 = myFunc.MyScatter(x_mean, y2_sum, 20,
+                     f"Tokyo month{n_month} monthly, temperature x VS residual demand y", 
+                     "temperature", 
+                     "GWh in month", 
+                     12000,
+                     30000,
+                     fr"results/ResidualDemand/Monthly_month{n_month}_Temperature_vs_ResidualDemand.png")
+    grad2.append(g2)
+
+
+# リストを DataFrame に変換
+df_g = pd.DataFrame(grad1, columns=['delta'])
+df_g.to_csv(r'results/delta_Demand_Tokyo.csv', index=False)
+df_g = pd.DataFrame(grad2, columns=['delta'])
+df_g.to_csv(r'results/delta_ResidulDemand_Tokyo.csv', index=False)
+
