@@ -5,7 +5,7 @@ print("データ読み込み")
 #必要部分だけ残す
 df=pd.read_csv(r"CSV\Load_fromSnowflake.csv")
 
-# StartDatetime列をdatetime型に変換（ここが重要！）
+# StartDatetime列をdatetime型に変換
 df["DELIVERYDATE"] = pd.to_datetime(df["DELIVERYDATE"], errors='coerce')
 
 idx = df.loc[:, "AREAID"]==3
