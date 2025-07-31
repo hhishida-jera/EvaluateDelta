@@ -26,8 +26,8 @@ pyproject.tomlを参照ください。
 
 ## 実行方法
 poetoryで仮想環境を構築し、適時フォルダに移動してから、例えば以下を実行ください。
->> poetry install
->> poetry shell
+> poetry install
+> poetry shell
 
 そのあと、EvaluateLWS.pyを実行ください。用意したファイルをそのまま使う場合以外は、気温、太陽光、風力、気温などに該当する項目を適時書き換えてください。
->> EvaluateLWS.py
+> EvaluateLWS.py
