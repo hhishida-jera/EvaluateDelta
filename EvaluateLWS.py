@@ -19,7 +19,7 @@ flag_vis = False
 print("1. データ読み込み")
 
 print("Solar")
-df_s=pd.read_csv(r"CSV\forecast_2024FY_tokyo_for_each_weather_scenario.csv")
+df_s=pd.read_csv(r"CSV\forecast_2024FY_tokyo_for_each_weather_scenario.csv  ")
 
 # 条件に合う列インデックスを選択（4で割って余りが0または3）
 cols = [i for i in range(df_s.shape[1]) if i % 4 == 0 or i % 4 == 3]
@@ -139,8 +139,6 @@ df_lws_day = myFunc.MergeToPeriod(df_lws, 88, "Date")
 #月曜日始まり、日曜日終わり 
 df_lws_week = myFunc.MergeToPeriod(df_lws, 88, "Week")
 df_lws_month = myFunc.MergeToPeriod(df_lws, 88, "Month")
-
-
 
 ##################################################################
 print("3. 可視化")
